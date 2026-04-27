@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: 8ball-pool-online
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true

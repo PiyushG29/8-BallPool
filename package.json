@@ -1,0 +1,9 @@
+{
+  "name": "8ball-pool-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-hosted 8 ball pool with classic 2-player and tricolor 3-player online rooms.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
