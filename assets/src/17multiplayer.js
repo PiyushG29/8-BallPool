@@ -136,13 +136,7 @@
       hide(overlay);
       return;
     }
-    var gi = currentGameInfo();
-    if (!gi || gi.gameOver || gi.turn === PoolNet.localSlot) {
-      hide(overlay);
-      return;
-    }
-    overlay.innerHTML = '<div class="turn-card"><strong>' + escapeHtml(turnMessage(gi)) + '</strong><span>Waiting for the synced board update from ' + escapeHtml(playerLabel(gi.turn)) + ".</span></div>";
-    show(overlay);
+    hide(overlay);
   }
 
   function updateHud() {
@@ -443,6 +437,14 @@
       return;
     }
     if (data.type === "room_action") {
+      if (data.actionType === "shot-start") {
+        if (data.from !== PoolNet.localSlot) {
+          PoolNet.waitingForRemoteSync = false;
+          PoolNet.threePlayerPostShotHandled = false;
+          applyLiveState(data.payload);
+        }
+        return;
+      }
       if (data.actionType === "sync-state" || data.actionType === "game-over") {
         if (data.from !== PoolNet.localSlot) {
           PoolNet.waitingForRemoteSync = false;
@@ -507,6 +509,37 @@
     };
   }
 
+  function serializeLiveState(gi) {
+    return {
+      turn: gi.turn,
+      winner: gi.winner || "",
+      gameOver: !!gi.gameOver,
+      shotRunning: !!gi.shotRunning,
+      shotNum: gi.shotNum || 0,
+      cueBallInHand: !!gi.cueBallInHand,
+      p1TargetType: gi.p1TargetType || "ANY",
+      p2TargetType: gi.p2TargetType || "ANY",
+      p3TargetType: gi.p3TargetType || "GREEN",
+      playerTargetTypeMap: gi.playerTargetTypeMap || { p1: "RED", p2: "BLUE", p3: "GREEN" },
+      balls: gi.ballArray.map(function (ball) {
+        return {
+          id: ball.id,
+          x: ball.position.x,
+          y: ball.position.y,
+          vx: ball.velocity ? ball.velocity.x : 0,
+          vy: ball.velocity ? ball.velocity.y : 0,
+          active: !!ball.active,
+          visible: !!ball.mc.visible,
+          targetType: ball.targetType || "",
+          grip: typeof ball.grip === "number" ? ball.grip : 1,
+          ySpin: typeof ball.ySpin === "number" ? ball.ySpin : 0,
+          screw: typeof ball.screw === "number" ? ball.screw : 0,
+          english: typeof ball.english === "number" ? ball.english : 0
+        };
+      })
+    };
+  }
+
   function applySnapshot(snapshot) {
     var gi = currentGameInfo();
     if (!snapshot || !gi || !gi.ballArray) {
@@ -559,6 +592,65 @@
     }
     updateHud();
     updateTurnOverlay();
+  }
+
+  function applyLiveState(liveState) {
+    var gi = currentGameInfo();
+    if (!liveState || !gi || !gi.ballArray) {
+      return;
+    }
+    for (var i = 0; i < gi.ballArray.length; i++) {
+      var ball = gi.ballArray[i];
+      var source = liveState.balls[i];
+      if (!source) {
+        continue;
+      }
+      ball.position.x = source.x;
+      ball.position.y = source.y;
+      ball.velocity = new Vector2D(source.vx || 0, source.vy || 0);
+      ball.active = source.active;
+      ball.targetType = source.targetType || ball.targetType;
+      ball.grip = typeof source.grip === "number" ? source.grip : ball.grip;
+      ball.ySpin = typeof source.ySpin === "number" ? source.ySpin : ball.ySpin;
+      if (typeof source.screw === "number") {
+        ball.screw = source.screw;
+      }
+      if (typeof source.english === "number") {
+        ball.english = source.english;
+      }
+      if (ball.mc) {
+        ball.mc.visible = source.visible;
+      }
+      if (ball.shadow) {
+        ball.shadow.visible = source.active && source.visible !== false;
+      }
+    }
+    gi.turn = liveState.turn;
+    gi.winner = liveState.winner;
+    gi.gameOver = liveState.gameOver;
+    gi.shotRunning = !!liveState.shotRunning;
+    gi.shotNum = liveState.shotNum;
+    gi.cueBallInHand = !!liveState.cueBallInHand;
+    gi.p1TargetType = liveState.p1TargetType;
+    gi.p2TargetType = liveState.p2TargetType;
+    gi.p3TargetType = liveState.p3TargetType;
+    gi.playerTargetTypeMap = liveState.playerTargetTypeMap || gi.playerTargetTypeMap;
+    gi.shotComplete = false;
+    gi.rulingsApplied = false;
+    gi.beginStrike = false;
+    gi.settingPower = false;
+    gi.cueSet = false;
+    gi.gameRunning = true;
+    if (gi.cueCanvas) {
+      gi.cueCanvas.visible = false;
+      gi.cueCanvas.alpha = 1;
+    }
+    if (gi.guideCanvas) {
+      gi.guideCanvas.visible = false;
+    }
+    if (window.renderScreen) {
+      renderScreen();
+    }
   }
 
   function rearmTurnState(gi) {
@@ -619,6 +711,26 @@
       gi.ballArray[i].lastCollisionObject = null;
       gi.ballArray[i].firstContact = false;
       gi.ballArray[i].contactArray = [];
+    }
+  }
+
+  function enforceSpectatorLock(gi) {
+    if (!onlineActive() || !gi || gi.turn === PoolNet.localSlot) {
+      return;
+    }
+    gi.preventAim = true;
+    gi.preventSetPower = true;
+    gi.preventUpdateCue = true;
+    gi.settingPower = false;
+    gi.beginStrike = false;
+    gi.startAim = false;
+    gi.moverMouseDown = false;
+    gi.moverMouseOver = false;
+    if (gi.cueCanvas && !gi.shotRunning) {
+      gi.cueCanvas.visible = false;
+    }
+    if (gi.guideCanvas && !gi.shotRunning) {
+      gi.guideCanvas.visible = false;
     }
   }
 
@@ -688,6 +800,7 @@
       updateTurnOverlay();
     };
     playState.update = function () {
+      enforceSpectatorLock(playState.gameInfo);
       originalUpdate.apply(this, arguments);
       var gi = playState.gameInfo;
       if (!gi) {
@@ -714,6 +827,7 @@
         PoolNet.localShotPending = true;
         PoolNet.settleFrames = 0;
         PoolNet.waitingForRemoteSync = true;
+        postAction("shot-start", serializeLiveState(gi));
       }
       PoolNet.shotRunningLastFrame = gi.shotRunning;
       if (shouldSyncAfterShot(gi)) {
