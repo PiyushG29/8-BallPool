@@ -22,6 +22,8 @@
     shotRunningLastFrame: false,
     settleFrames: 0,
     threePlayerPostShotHandled: false,
+    lastMenuRenderKey: "",
+    lastLobbyRenderKey: "",
     uiReady: false
   };
 
@@ -211,6 +213,7 @@
     $("pool-join-room").onclick = function () {
       joinRoom();
     };
+    PoolNet.lastMenuRenderKey = "menu";
   }
 
   function renderLobby() {
@@ -250,6 +253,38 @@
       disconnectRoom();
       refreshShell();
     };
+    PoolNet.lastLobbyRenderKey = JSON.stringify({
+      id: room.id,
+      mode: room.mode,
+      started: room.started,
+      hostId: room.hostId,
+      players: room.players.map(function (player) {
+        return {
+          id: player.id,
+          name: player.name,
+          slot: player.slot
+        };
+      })
+    });
+  }
+
+  function lobbyRenderKey() {
+    if (!PoolNet.room) {
+      return "";
+    }
+    return JSON.stringify({
+      id: PoolNet.room.id,
+      mode: PoolNet.room.mode,
+      started: PoolNet.room.started,
+      hostId: PoolNet.room.hostId,
+      players: PoolNet.room.players.map(function (player) {
+        return {
+          id: player.id,
+          name: player.name,
+          slot: player.slot
+        };
+      })
+    });
   }
 
   function refreshShell() {
@@ -258,17 +293,23 @@
     }
     var inMenu = getStateName() === "mainMenu";
     if (!PoolNet.room && inMenu) {
-      renderMenu();
+      if (PoolNet.lastMenuRenderKey !== "menu") {
+        renderMenu();
+      }
       show(getMenuEl());
       hide(getLobbyEl());
     } else {
       hide(getMenuEl());
+      PoolNet.lastMenuRenderKey = "";
     }
     if (PoolNet.room && !PoolNet.started) {
-      renderLobby();
+      if (PoolNet.lastLobbyRenderKey !== lobbyRenderKey()) {
+        renderLobby();
+      }
       show(getLobbyEl());
     } else {
       hide(getLobbyEl());
+      PoolNet.lastLobbyRenderKey = "";
     }
     updateTurnOverlay();
     updateHud();
@@ -358,6 +399,8 @@
     PoolNet.waitingForRemoteSync = false;
     PoolNet.localShotPending = false;
     PoolNet.settleFrames = 0;
+    PoolNet.lastMenuRenderKey = "";
+    PoolNet.lastLobbyRenderKey = "";
     if (projectInfo) {
       projectInfo.networked = false;
       projectInfo.networkMode = "";
@@ -617,7 +660,6 @@
     PoolNet.uiReady = true;
     renderMenu();
     refreshShell();
-    setInterval(refreshShell, 500);
   }
 
   function patchPlayState() {
