@@ -666,7 +666,9 @@
     gi.lockAim = false;
     gi.executeStrike = false;
     gi.settingPower = false;
+    gi.settingSpin = false;
     gi.beginStrike = false;
+    gi.startAim = false;
     gi.cueTweenComplete = false;
     gi.preventAim = false;
     gi.preventSetPower = false;
@@ -681,6 +683,10 @@
     gi.ballsPotted = 0;
     gi.typesPotted = "";
     gi.ballsPottedSameType = false;
+    gi.placeFirstTimeMouseUp = false;
+    gi.moverMouseDown = false;
+    gi.moverMouseOver = false;
+    gi.power = 0;
     cueBall.active = true;
     if (cueBall.shadow) {
       cueBall.shadow.visible = true;
@@ -711,6 +717,58 @@
       gi.ballArray[i].lastCollisionObject = null;
       gi.ballArray[i].firstContact = false;
       gi.ballArray[i].contactArray = [];
+    }
+  }
+
+  function canFinalizeShotSync(gi) {
+    if (!gi || gi.shotRunning) {
+      return false;
+    }
+    if (gi.beginStrike || gi.settingPower || gi.settingSpin) {
+      return false;
+    }
+    if (gi.foulDisplayComplete === false) {
+      return false;
+    }
+    if (gi.foulWindow && gi.foulWindow.visible) {
+      return false;
+    }
+    if (gi.popUpPanel && gi.popUpPanel.visible) {
+      return false;
+    }
+    if (!gi.shotReset && !gi.gameOver) {
+      return false;
+    }
+    if (!gi.gameRunning && !gi.gameOver) {
+      return false;
+    }
+    return true;
+  }
+
+  function ensureActivePlayerReady(gi) {
+    if (!onlineActive() || !gi || gi.turn !== PoolNet.localSlot || gi.shotRunning || gi.gameOver) {
+      return;
+    }
+    if (!canFinalizeShotSync(gi)) {
+      return;
+    }
+    gi.gameRunning = true;
+    gi.preventAim = false;
+    gi.preventSetPower = false;
+    gi.preventUpdateCue = false;
+    gi.settingPower = false;
+    gi.settingSpin = false;
+    gi.beginStrike = false;
+    gi.startAim = false;
+    gi.moverMouseDown = false;
+    gi.moverMouseOver = false;
+    gi.drawGuide = true;
+    if (gi.cueCanvas) {
+      gi.cueCanvas.visible = true;
+      gi.cueCanvas.alpha = 1;
+    }
+    if (gi.guideCanvas) {
+      gi.guideCanvas.visible = true;
     }
   }
 
@@ -754,7 +812,7 @@
     if (!onlineActive() || !PoolNet.localShotPending) {
       return false;
     }
-    if (gi.shotRunning) {
+    if (!canFinalizeShotSync(gi)) {
       return false;
     }
     for (var i = 0; i < gi.ballArray.length; i++) {
@@ -818,6 +876,7 @@
           }
         }
       }
+      ensureActivePlayerReady(gi);
       updateHud();
       updateTurnOverlay();
       if (!onlineActive()) {
@@ -847,6 +906,30 @@
     };
   }
 
+  function fitMenuModeButtons(info) {
+    if (!info || !info.pVpButton || !info.pV3Button || !info.pVAIButton || !window.game) {
+      return;
+    }
+    var isPortrait = window.famobi && window.famobi.getOrientation && window.famobi.getOrientation() === "portrait";
+    var spacing = isPortrait ? 18 : 30;
+    var maxRowWidth = Math.min(game.width * (isPortrait ? 0.84 : 0.48), isPortrait ? 860 : 700);
+    var targetButtonWidth = (maxRowWidth - spacing * 2) / 3;
+    var minScale = isPortrait ? 0.42 : 0.38;
+    var maxScale = isPortrait ? 0.6 : 0.5;
+    var buttonScale = Math.max(minScale, Math.min(maxScale, targetButtonWidth / 460));
+    var offset = 460 * buttonScale + spacing;
+    var rowShift = isPortrait ? 0 : Math.min(120, game.width * 0.06);
+    var rowY = isPortrait ? game.height * 0.03 : game.height * 0.08;
+    var buttons = [info.pVpButton, info.pV3Button, info.pVAIButton];
+    buttons.forEach(function (button) {
+      button.scale.setTo(buttonScale, buttonScale);
+      button.y = rowY;
+    });
+    info.pVpButton.x = rowShift - offset;
+    info.pV3Button.x = rowShift;
+    info.pVAIButton.x = rowShift + offset;
+  }
+
   function patchMenuState() {
     if (!window.menuState || menuState._onlinePatched) {
       return;
@@ -856,9 +939,19 @@
     menuState.create = function () {
       originalCreate.apply(this, arguments);
       var info = menuState.menuInfo;
+      if (typeof menuState.resizeGame === "function" && !menuState.resizeGame._onlineScaled) {
+        var originalResize = menuState.resizeGame;
+        var wrappedResize = function () {
+          originalResize.apply(this, arguments);
+          fitMenuModeButtons(menuState.menuInfo);
+        };
+        wrappedResize._onlineScaled = true;
+        menuState.resizeGame = wrappedResize;
+      }
       if (info && info.menuCanvas && info.pVpButton && info.pVpButton.parent !== info.menuCanvas) {
         info.menuCanvas.addChild(info.pVpButton);
       }
+      fitMenuModeButtons(info);
       refreshShell();
     };
     var originalShutdown = menuState.shutdown;
