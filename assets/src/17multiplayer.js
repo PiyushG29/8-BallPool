@@ -875,6 +875,9 @@
             renderScreen();
           }
         }
+        if (gi.timerStarted && !projectInfo.tutorial && typeof updateTimer === "function") {
+          updateTimer();
+        }
       }
       ensureActivePlayerReady(gi);
       updateHud();
